@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  BINARY_NAME: tabularis-hackernews-plugin
+
+jobs:
+  # ── 1. Prepare: update manifest.json version & generate CHANGELOG ──
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Update manifest.json version
+        run: |
+          jq --arg v "${{ steps.version.outputs.version }}" '.version = $v' manifest.json > manifest.tmp.json
+          mv manifest.tmp.json manifest.json
+
+      - name: Generate CHANGELOG.md
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --tag ${{ github.ref_name }}
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit version bump & changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json CHANGELOG.md
+          git commit -m "chore(release): ${{ github.ref_name }}" || true
+          git push origin HEAD:main
+
+      - name: Upload manifest as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest
+          path: manifest.json
+
+      - name: Upload changelog as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
+
+  # ── 2. Build matrix ────────────────────────────────────────────────
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            platform: darwin-x64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            platform: darwin-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            platform: win-x64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download manifest artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: manifest
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.target }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir staging
+          cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} staging/
+          cp manifest.json staging/
+          cd staging && zip -r ../hackernews-plugin-${{ matrix.platform }}.zip .
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging
+          Copy-Item "target\${{ matrix.target }}\release\${{ env.BINARY_NAME }}.exe" staging\
+          Copy-Item "manifest.json" staging\
+          Compress-Archive -Path "staging\*" -DestinationPath "hackernews-plugin-${{ matrix.platform }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hackernews-plugin-${{ matrix.platform }}
+          path: hackernews-plugin-${{ matrix.platform }}.zip
+
+  # ── 3. Create GitHub Release ───────────────────────────────────────
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download changelog
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          files: artifacts/*.zip
+          generate_release_notes: false
