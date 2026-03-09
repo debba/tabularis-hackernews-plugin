@@ -13,3 +13,4 @@
 - *(release)* Add release workflow and ignore target directory
 - *(release)* V0.1.0
 - *(release)* V0.1.0
+- *(release)* V0.1.0
