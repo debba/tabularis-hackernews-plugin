@@ -1,0 +1,95 @@
+{
+  "$schema": "https://tabularis.dev/schemas/plugin-manifest.json",
+  "id": "hackernews",
+  "name": "Hacker News",
+  "version": "0.1.0",
+  "description": "Query Hacker News stories, comments, users and polls as SQL tables using the public API.",
+  "default_port": null,
+  "executable": "tabularis-hackernews-plugin",
+  "color": "#ff6600",
+  "icon": "rss",
+  "capabilities": {
+    "schemas": false,
+    "views": false,
+    "routines": false,
+    "file_based": false,
+    "folder_based": false,
+    "identifier_quote": "\"",
+    "alter_primary_key": false,
+    "alter_column": false,
+    "create_foreign_keys": false,
+    "no_connection_required": true
+  },
+  "data_types": [
+    { "name": "VARCHAR",  "category": "string",  "requires_length": false, "requires_precision": false },
+    { "name": "BIGINT",   "category": "numeric", "requires_length": false, "requires_precision": false },
+    { "name": "INTEGER",  "category": "numeric", "requires_length": false, "requires_precision": false },
+    { "name": "BOOLEAN",  "category": "other",   "requires_length": false, "requires_precision": false }
+  ],
+  "settings": [
+    {
+      "key": "story_type",
+      "label": "Feed",
+      "type": "select",
+      "options": ["top", "new", "best", "ask", "show", "jobs"],
+      "default": "top",
+      "description": "Which Hacker News feed to load into the stories table."
+    },
+    {
+      "key": "max_items",
+      "label": "Max Stories",
+      "type": "number",
+      "default": 30,
+      "description": "How many stories to fetch from the feed (max 500)."
+    },
+    {
+      "key": "include_comments",
+      "label": "Include Comments",
+      "type": "boolean",
+      "default": false,
+      "description": "Load comments for each story (enables the comments table)."
+    },
+    {
+      "key": "comment_depth",
+      "label": "Comment Depth",
+      "type": "number",
+      "default": 1,
+      "description": "How many nesting levels of comments to fetch (1–3). Higher values fetch many more requests."
+    },
+    {
+      "key": "max_comments",
+      "label": "Max Comments",
+      "type": "number",
+      "default": 500,
+      "description": "Global cap on the total number of comments fetched (max 5000)."
+    },
+    {
+      "key": "include_users",
+      "label": "Include Users",
+      "type": "boolean",
+      "default": false,
+      "description": "Fetch author profiles (karma, bio) for all story (and comment) authors. Enables the users table."
+    },
+    {
+      "key": "include_polls",
+      "label": "Include Poll Options",
+      "type": "boolean",
+      "default": false,
+      "description": "Fetch voting options for poll-type stories. Enables the poll_options table."
+    },
+    {
+      "key": "timeout",
+      "label": "Timeout (s)",
+      "type": "number",
+      "default": 10,
+      "description": "HTTP request timeout in seconds for the HN API."
+    },
+    {
+      "key": "cache_ttl_minutes",
+      "label": "Cache TTL (min)",
+      "type": "number",
+      "default": 0,
+      "description": "Automatically refresh data after this many minutes. Set to 0 to disable."
+    }
+  ]
+}
