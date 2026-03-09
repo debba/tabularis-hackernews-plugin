@@ -15,9 +15,9 @@
 
 A Hacker News plugin for [Tabularis](https://github.com/debba/tabularis), the lightweight database management tool.
 
-This plugin turns the **HN public API into a queryable SQL database**. Stories, comments and jobs become real tables. Full SQL support via an in-memory DuckDB engine — `JOIN` across tables, `GROUP BY`, window functions, CTEs.
+This plugin turns the **HN public API into a queryable SQL database**. Stories, comments, users and polls become real tables. Full SQL support via an in-memory DuckDB engine — `JOIN` across tables, `GROUP BY`, window functions, CTEs.
 
-**No authentication required** — uses the public Firebase API. Requires `pip install requests duckdb`.
+**No authentication required** — uses the public Firebase API. No runtime dependencies: ships as a single compiled binary.
 
 **Discord** - [Join our discord server](https://discord.gg/YrZPHAwMSG) and chat with the maintainers.
 
@@ -40,11 +40,11 @@ This plugin turns the **HN public API into a queryable SQL database**. Stories, 
 - **Zero auth** — reads the public HN Firebase API, no API key needed.
 - **Real SQL** — DuckDB handles all query execution: `JOIN`, `GROUP BY`, subqueries, CTEs, window functions.
 - **Auto-refresh** — configurable TTL to reload data periodically without restarting the connection.
-- **4 feed types** — `top`, `new`, `best`, `ask`, `show`, `jobs`.
-- **Comments table** — optionally load top-level comments per story and JOIN against them.
+- **6 feed types** — `top`, `new`, `best`, `ask`, `show`, `jobs`.
+- **4 tables** — `stories`, `comments` (nested BFS fetch), `users` (author profiles), `poll_options`.
 - **Schema Inspection** — browse tables and columns in the sidebar explorer.
-- **ER Diagram** — visualize the stories ↔ comments relationship.
-- **Cross-platform** — works on Linux, macOS, and Windows wherever Python 3.10+ is installed.
+- **ER Diagram** — visualize relationships between tables.
+- **Cross-platform** — works on Linux, macOS, and Windows. No runtime dependencies.
 
 ## Installation
 
@@ -54,15 +54,9 @@ Open **Settings → Available Plugins** in Tabularis and install **Hacker News**
 
 ### Manual Installation
 
-1. Download the latest `hackernews-plugin.zip` from the [Releases page](https://github.com/debba/tabularis-hackernews-plugin/releases).
+1. Download the latest release archive for your platform from the [Releases page](https://github.com/debba/tabularis-hackernews-plugin/releases).
 2. Extract the archive.
-3. Install dependencies:
-
-```bash
-pip install requests duckdb
-```
-
-4. Copy `main.py` and `manifest.json` into the Tabularis plugins directory:
+3. Copy `tabularis-hackernews-plugin` (or `tabularis-hackernews-plugin.exe` on Windows) and `manifest.json` into the Tabularis plugins directory:
 
 | OS | Plugins Directory |
 |---|---|
@@ -70,25 +64,23 @@ pip install requests duckdb
 | **macOS** | `~/Library/Application Support/com.debba.tabularis/plugins/hackernews/` |
 | **Windows** | `%APPDATA%\com.debba.tabularis\plugins\hackernews\` |
 
-5. Make the plugin executable (Linux/macOS):
+4. Make the binary executable (Linux/macOS):
 
 ```bash
-chmod +x ~/.local/share/tabularis/plugins/hackernews/main.py
+chmod +x ~/.local/share/tabularis/plugins/hackernews/tabularis-hackernews-plugin
 ```
 
-6. Restart Tabularis.
-
-Python 3.10 or newer must be available as `python3` in your `PATH`.
+5. Restart Tabularis.
 
 ## How It Works
 
-The plugin is a single Python script that communicates with Tabularis through **JSON-RPC 2.0 over stdio**:
+The plugin is a compiled Rust binary that communicates with Tabularis through **JSON-RPC 2.0 over stdio**:
 
-1. Tabularis spawns `main.py` as a child process.
+1. Tabularis spawns `tabularis-hackernews-plugin` as a child process.
 2. Requests are sent as newline-delimited JSON-RPC messages to the plugin's `stdin`.
 3. Responses are written to `stdout` in the same format.
 
-On the first `execute_query`, the plugin fetches story IDs from the selected feed, loads each item from the HN API into an **in-memory DuckDB database**, and keeps it alive for the session. DuckDB handles all query execution.
+On the first `execute_query`, the plugin fetches story IDs from the selected feed, loads each item from the HN API concurrently into an **in-memory DuckDB database**, and keeps it alive for the session. DuckDB handles all query execution.
 
 If `cache_ttl_minutes` is set, the snapshot is automatically rebuilt after that interval — no need to restart the connection.
 
@@ -102,7 +94,11 @@ Configure via **Settings → gear icon** next to the Hacker News driver.
 |---|---|---|---|---|
 | `story_type` | Feed | select | `top` | Which HN feed: `top`, `new`, `best`, `ask`, `show`, `jobs` |
 | `max_items` | Max Stories | number | `30` | How many stories to fetch (max 500) |
-| `include_comments` | Include Comments | boolean | `false` | Also load top-level comments, enables the `comments` table |
+| `include_comments` | Include Comments | boolean | `false` | Load comments, enables the `comments` table |
+| `comment_depth` | Comment Depth | number | `1` | Nesting levels to fetch (1–3). Higher values make many more requests |
+| `max_comments` | Max Comments | number | `500` | Global cap on total comments fetched (max 5000) |
+| `include_users` | Include Users | boolean | `false` | Fetch author profiles for story/comment authors, enables the `users` table |
+| `include_polls` | Include Poll Options | boolean | `false` | Fetch voting options for poll stories, enables the `poll_options` table |
 | `timeout` | Timeout (s) | number | `10` | HTTP timeout in seconds for HN API requests |
 | `cache_ttl_minutes` | Cache TTL (min) | number | `0` | Auto-refresh data after N minutes. `0` = disabled |
 
@@ -166,13 +162,21 @@ WHERE time > epoch(now()) - 86400
 ORDER BY score DESC;
 ```
 
+```sql
+-- Top authors by karma (requires Include Users = true)
+SELECT id, karma, submitted_count
+FROM users
+ORDER BY karma DESC
+LIMIT 10;
+```
+
 ## Supported Operations
 
 | Method | Description |
 |---|---|
 | `test_connection` | Verify the HN API is reachable |
 | `get_databases` | Returns `["hackernews"]` |
-| `get_tables` | Lists `stories` (and `comments` if enabled) |
+| `get_tables` | Lists active tables based on current settings |
 | `get_columns` | Get column schema for a table |
 | `execute_query` | Execute SQL with pagination support |
 | `get_schema_snapshot` | Full schema dump in one call (used for ER diagrams) |
@@ -182,25 +186,29 @@ ORDER BY score DESC;
 
 ## Development
 
+### Building
+
+```bash
+cargo build --release
+```
+
 ### Testing the Plugin
 
 Test the plugin directly from your shell without opening Tabularis:
 
 ```bash
-chmod +x main.py
-
 # initialize
 echo '{"jsonrpc":"2.0","method":"initialize","params":{"settings":{"story_type":"top","max_items":5,"include_comments":false,"timeout":10,"cache_ttl_minutes":0}},"id":1}' \
-  | python3 main.py
+  | ./target/release/tabularis-hackernews-plugin
 
 # execute a query (fetches live data)
 echo '{"jsonrpc":"2.0","method":"execute_query","params":{"params":{"driver":"hackernews","database":"hackernews"},"query":"SELECT title, score FROM stories ORDER BY score DESC LIMIT 3","page":1,"page_size":100},"id":2}' \
-  | python3 main.py
+  | ./target/release/tabularis-hackernews-plugin
 ```
 
 ### Install Locally
 
-A convenience script is provided to copy the plugin directly into your Tabularis plugins folder:
+A convenience script builds the project and copies the binary and manifest directly into your Tabularis plugins folder:
 
 ```bash
 ./sync.sh
@@ -208,8 +216,10 @@ A convenience script is provided to copy the plugin directly into your Tabularis
 
 ### Tech Stack
 
-- **Language:** Python 3.10+
+- **Language:** Rust
 - **Query engine:** DuckDB (in-memory)
+- **HTTP client:** reqwest (async, rustls-tls)
+- **Async runtime:** Tokio
 - **Data source:** [HN Firebase API](https://github.com/HackerNews/API)
 - **Protocol:** JSON-RPC 2.0 over stdio
 
