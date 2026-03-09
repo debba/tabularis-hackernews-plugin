@@ -21,17 +21,44 @@
     "no_connection_required": true
   },
   "data_types": [
-    { "name": "VARCHAR",  "category": "string",  "requires_length": false, "requires_precision": false },
-    { "name": "BIGINT",   "category": "numeric", "requires_length": false, "requires_precision": false },
-    { "name": "INTEGER",  "category": "numeric", "requires_length": false, "requires_precision": false },
-    { "name": "BOOLEAN",  "category": "other",   "requires_length": false, "requires_precision": false }
+    {
+      "name": "VARCHAR",
+      "category": "string",
+      "requires_length": false,
+      "requires_precision": false
+    },
+    {
+      "name": "BIGINT",
+      "category": "numeric",
+      "requires_length": false,
+      "requires_precision": false
+    },
+    {
+      "name": "INTEGER",
+      "category": "numeric",
+      "requires_length": false,
+      "requires_precision": false
+    },
+    {
+      "name": "BOOLEAN",
+      "category": "other",
+      "requires_length": false,
+      "requires_precision": false
+    }
   ],
   "settings": [
     {
       "key": "story_type",
       "label": "Feed",
       "type": "select",
-      "options": ["top", "new", "best", "ask", "show", "jobs"],
+      "options": [
+        "top",
+        "new",
+        "best",
+        "ask",
+        "show",
+        "jobs"
+      ],
       "default": "top",
       "description": "Which Hacker News feed to load into the stories table."
     },
